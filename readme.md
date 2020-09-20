@@ -1,7 +1,7 @@
 # Azure Functions with Private Endpoints
 
 This repo is just a slimmed-down version of the repo found here:
-[https://github.com/mcollier/azure-functions-private-storage](https://github.com/mcollier/azure-functions-private-storage) . Refer to this linked repo for further explanation about how the private endpoints work with Functions.
+[https://github.com/mcollier/azure-functions-private-storage](https://github.com/mcollier/azure-functions-private-storage) . Refer to this linked repo for further explanation about how the private endpoints work with Functions and a more complete example.
 
 ## Architecture Overview
 
