@@ -1,0 +1,610 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "AppName": {
+      "type": "string"
+    },
+    "vnetName": {
+      "type": "string"
+    },
+    "blobContainerName": {
+      "type": "string",
+      "defaultValue": "fakecontainer"
+    },
+    "FunctionName": {
+      "type": "string",
+      "defaultValue": "BlobTrigger1"
+    },
+    "AzureWebJobsStorage_StorageAccount": {
+      "type": "string",
+      "defaultValue": "[toLower(concat(uniqueString(resourceGroup().id), 'wjsa'))]"
+    },
+    "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING_StorageAccount": {
+      "type": "string",
+      "defaultValue": "[toLower(concat(uniqueString(resourceGroup().id), 'csa'))]"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "virtualNetworkAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.100.0.0/16"
+    },
+    "functionSubnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.100.0.0/24"
+    },
+    "privateEndpointSubnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.100.1.0/24"
+    }
+  },
+  "variables": {
+    "uniqueStringId": "[uniqueString(resourceGroup().id)]",
+    "appServicePlanName": "[concat(parameters('AppName'), '-asp')]",
+    "functionsSubnetName": "[concat(variables('uniqueStringId'), '-subnet-functions')]",
+    "privateEndpointSubnetName": "[concat(variables('uniqueStringId'), '-subnet-privateendpoint')]",
+    "privateEndpointCosmosDbName": "[concat(variables('uniqueStringId'), '-cosmosdb-private-endpoint')]",
+    "privateEndpointWebJobsQueueStorageName": "[concat(parameters('AzureWebJobsStorage_StorageAccount'), '-queue-private-endpoint')]",
+    "privateEndpointWebJobsTableStorageName": "[concat(parameters('AzureWebJobsStorage_StorageAccount'), '-table-private-endpoint')]",
+    "privateEndpointWebJobsBlobStorageName": "[concat(parameters('AzureWebJobsStorage_StorageAccount'), '-blob-private-endpoint')]",
+    "privateEndpointWebJobsFileStorageName": "[concat(parameters('AzureWebJobsStorage_StorageAccount'), '-file-private-endpoint')]",
+    "privateStorageQueueDnsZoneName": "privatelink.queue.core.windows.net",
+    "privateStorageBlobDnsZoneName": "privatelink.blob.core.windows.net",
+    "privateStorageTableDnsZoneName": "privatelink.table.core.windows.net",
+    "privateStorageFileDnsZoneName": "privatelink.file.core.windows.net",
+    "appInsightsResourceId": "[resourceId('Microsoft.Insights/components', parameters('AppName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "name": "[parameters('vnetName')]",
+      "dependsOn": [
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('virtualNetworkAddressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('functionsSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('functionSubnetAddressPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "serviceEndpoints": [
+              ],
+              "delegations": [
+                {
+                  "name": "webapp",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms",
+                    "actions": [
+                      "Microsoft.Network/virtualNetworks/subnets/action"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "[variables('privateEndpointSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('privateEndpointSubnetAddressPrefix')]",
+              "serviceEndpoints": [
+              ],
+              "delegations": [
+              ],
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "privateEndpointNetworkPolicies": "Disabled"
+            }
+          }
+        ],
+        "virtualNetworkPeerings": [
+        ],
+        "enableDdosProtection": false,
+        "enableVmProtection": false
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2019-06-01",
+      "location": "[parameters('location')]",
+      "name": "[parameters('WEBSITE_CONTENTAZUREFILECONNECTIONSTRING_StorageAccount')]",
+      "sku": {
+        "name": "Standard_LRS",
+        "tier": "Standard"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [
+          ],
+          "ipRules": [
+          ],
+          "defaultAction": "Allow"
+        },
+        "supportsHttpsTrafficOnly": true,
+        "encryption": {
+          "services": {
+            "file": {
+              "keyType": "Account",
+              "enabled": true
+            },
+            "blob": {
+              "keyType": "Account",
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2019-06-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "name": "[parameters('AzureWebJobsStorage_StorageAccount')]",
+      "sku": {
+        "name": "Standard_LRS",
+        "tier": "Standard"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [
+          ],
+          "ipRules": [
+          ],
+          "defaultAction": "Deny"
+        },
+        "supportsHttpsTrafficOnly": true,
+        "encryption": {
+          "services": {
+            "file": {
+              "keyType": "Account",
+              "enabled": true
+            },
+            "blob": {
+              "keyType": "Account",
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2019-06-01",
+      "name": "[concat(parameters('AzureWebJobsStorage_StorageAccount'), '/default/', parameters('blobContainerName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2015-05-01",
+      "location": "[parameters('location')]",
+      "name": "[parameters('AppName')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web"
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2018-09-01",
+      "name": "[variables('privateStorageQueueDnsZoneName')]",
+      "location": "global",
+      "properties": ""
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2018-09-01",
+      "name": "[variables('privateStorageBlobDnsZoneName')]",
+      "location": "global",
+      "properties": ""
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2018-09-01",
+      "name": "[variables('privateStorageTableDnsZoneName')]",
+      "location": "global",
+      "properties": ""
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2018-09-01",
+      "name": "[variables('privateStorageFileDnsZoneName')]",
+      "location": "global",
+      "properties": ""
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2018-09-01",
+      "name": "[concat(variables('privateStorageQueueDnsZoneName'), '/', variables('privateStorageQueueDnsZoneName'), '-link')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageQueueDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2018-09-01",
+      "name": "[concat(variables('privateStorageTableDnsZoneName'), '/', variables('privateStorageTableDnsZoneName'), '-link')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageTableDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2018-09-01",
+      "name": "[concat(variables('privateStorageBlobDnsZoneName'), '/', variables('privateStorageBlobDnsZoneName'), '-link')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageBlobDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2018-09-01",
+      "name": "[concat(variables('privateStorageFileDnsZoneName'), '/', variables('privateStorageFileDnsZoneName'), '-link')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageFileDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "name": "[variables('privateEndpointWebJobsQueueStorageName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('privateEndpointSubnetName') )]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "MyStorageQueuePrivateLinkConnection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+              "groupIds": [
+                "queue"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2020-03-01",
+      "location": "[parameters('location')]",
+      "name": "[concat(variables('privateEndpointWebJobsQueueStorageName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageQueueDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', variables('privateEndpointWebJobsQueueStorageName'))]"
+      ],
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "config1",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageQueueDnsZoneName'))]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "name": "[variables('privateEndpointWebJobsTableStorageName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('privateEndpointSubnetName') )]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "MyStorageQueuePrivateLinkConnection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+              "groupIds": [
+                "table"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2020-03-01",
+      "location": "[parameters('location')]",
+      "name": "[concat(variables('privateEndpointWebJobsTableStorageName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageTableDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', variables('privateEndpointWebJobsTableStorageName'))]"
+      ],
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "config1",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageTableDnsZoneName'))]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "name": "[variables('privateEndpointWebJobsBlobStorageName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('privateEndpointSubnetName') )]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "MyStorageQueuePrivateLinkConnection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+              "groupIds": [
+                "blob"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2020-03-01",
+      "location": "[parameters('location')]",
+      "name": "[concat(variables('privateEndpointWebJobsBlobStorageName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageBlobDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', variables('privateEndpointWebJobsBlobStorageName'))]"
+      ],
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "config1",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageBlobDnsZoneName'))]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "name": "[variables('privateEndpointWebJobsFileStorageName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('privateEndpointSubnetName') )]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "MyStorageQueuePrivateLinkConnection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+              "groupIds": [
+                "file"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2020-03-01",
+      "location": "[parameters('location')]",
+      "name": "[concat(variables('privateEndpointWebJobsFileStorageName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageFileDnsZoneName'))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', variables('privateEndpointWebJobsFileStorageName'))]"
+      ],
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "config1",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateStorageFileDnsZoneName'))]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2018-02-01",
+      "name": "[variables('appServicePlanName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "EP1",
+        "tier": "ElasticPremium",
+        "size": "EP1",
+        "family": "EP",
+        "capacity": 1
+      },
+      "kind": "elastic",
+      "properties": {
+        "maximumElasticWorkerCount": 20
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2018-11-01",
+      "name": "[parameters('AppName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('WEBSITE_CONTENTAZUREFILECONNECTIONSTRING_StorageAccount'))]"
+      ],
+      "kind": "functionapp",
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "siteConfig": {
+          "vnetName": "[concat('bead47e1-d65e-4cb4-b907-f74674d32c09_', variables('functionsSubnetName'))]",
+          "appSettings": [
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(variables('appInsightsResourceId'), '2018-05-01-preview').instrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[concat('InstrumentationKey=', reference(variables('appInsightsResourceId'), '2018-05-01-preview').instrumentationKey)]"
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',parameters('AzureWebJobsStorage_StorageAccount'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', parameters('AzureWebJobsStorage_StorageAccount')), '2018-11-01').keys[0].value,';')]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~3"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "dotnet"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',parameters('WEBSITE_CONTENTAZUREFILECONNECTIONSTRING_StorageAccount'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', parameters('WEBSITE_CONTENTAZUREFILECONNECTIONSTRING_StorageAccount')), '2018-11-01').keys[0].value,';')]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[concat(parameters('AppName'), variables('uniqueStringId'))]"
+            },
+            {
+              "name": "WEBSITE_VNET_ROUTE_ALL",
+              "value": "1"
+            },
+            {
+              "name": "WEBSITE_DNS_SERVER",
+              "value": "168.63.129.16"
+            }
+          ]
+        }
+      },
+      "resources": [
+        {
+          "type": "networkConfig",
+          "apiVersion": "2019-08-01",
+          "name": "virtualNetwork",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', parameters('AppName'))]",
+            "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+          ],
+          "properties": {
+            "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('functionsSubnetName'))]",
+            "isSwift": true
+          }
+        },
+        {
+          "name": "[concat(parameters('AppName'), '/', parameters('functionName'))]",
+          "type": "Microsoft.Web/sites/functions",
+          "apiVersion": "2018-11-01",
+          "properties": {
+            "config": {
+              "bindings": [
+                {
+                  "name": "parameters('functionName')",
+                  "type": "blobTrigger",
+                  "direction": "in",
+                  "path": "[concat(parameters('blobContainerName'), '/{name}')]",
+                  "connection": "AzureWebJobsStorage"
+                }
+              ],
+              "disabled": false
+            },
+            "files": {
+              "run.csx": "public static void Run(Stream myBlob, string name, ILogger log)\r\n{\nlog.LogInformation($\"C# Blob trigger function Processed blob Name:{name}\");\r\n}"
+            }
+          },
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', parameters('AppName'))]"
+          ]
+        },
+        {
+          "type": "config",
+          "name": "web",
+          "apiVersion": "2019-08-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', parameters('AppName'))]",
+            "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+          ],
+          "properties": {
+            "functionsRuntimeScaleMonitoringEnabled": true
+          }
+        }
+      ]
+    }
+  ],
+  "outputs": {
+  }
+}
