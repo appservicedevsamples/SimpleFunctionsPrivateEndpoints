@@ -12,10 +12,6 @@
       "type": "string",
       "defaultValue": "fakecontainer"
     },
-    "FunctionName": {
-      "type": "string",
-      "defaultValue": "BlobTrigger1"
-    },
     "AzureWebJobsStorage_StorageAccount": {
       "type": "string",
       "defaultValue": "[toLower(concat(uniqueString(resourceGroup().id), 'wjsa'))]"
@@ -566,14 +562,14 @@
           }
         },
         {
-          "name": "[concat(parameters('AppName'), '/', parameters('functionName'))]",
+          "name": "[concat(parameters('AppName'), '/BlobTrigger1')]",
           "type": "Microsoft.Web/sites/functions",
           "apiVersion": "2018-11-01",
           "properties": {
             "config": {
               "bindings": [
                 {
-                  "name": "parameters('functionName')",
+                  "name": "BlobTrigger1",
                   "type": "blobTrigger",
                   "direction": "in",
                   "path": "[concat(parameters('blobContainerName'), '/{name}')]",
@@ -583,7 +579,7 @@
               "disabled": false
             },
             "files": {
-              "run.csx": "public static void Run(Stream myBlob, string name, ILogger log)\r\n{\nlog.LogInformation($\"C# Blob trigger function Processed blob Name:{name}\");\r\n}"
+              "run.csx": "public static void Run(Stream BlobTrigger1, string name, ILogger log)\r\n{\nlog.LogInformation($\"C# Blob trigger function Processed blob Name:{name}\");\r\n}"
             }
           },
           "dependsOn": [
